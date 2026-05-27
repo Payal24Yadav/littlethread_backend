@@ -19,7 +19,7 @@ export const optimizeImage = async (filePath) => {
   const optimizedPath = path.join(dirName, optimizedName);
   const thumbPath = path.join(dirName, thumbName);
   const relativeDir = dirName.split(path.sep).slice(-1)[0]; // e.g., 'products'
-  const baseUrl = process.env.API_BASE_URL || 'http://localhost:5000';
+  const baseUrl = process.env.API_BASE_URL || 'https://littlethread-backend.onrender.com';
   const originalUrl = `${baseUrl}/uploads/${relativeDir}/${path.basename(filePath)}`;
   const isGif = ext.toLowerCase() === '.gif';
 
@@ -53,7 +53,7 @@ export const optimizeImage = async (filePath) => {
     console.error('Sharp optimization error:', error);
     // If optimization fails, return the original URL
     const relativeDir = dirName.split(path.sep).slice(-1)[0];
-    const baseUrl = process.env.API_BASE_URL || 'http://localhost:5000';
+    const baseUrl = process.env.API_BASE_URL || 'https://littlethread-backend.onrender.com';
     const url = `${baseUrl}/uploads/${relativeDir}/${path.basename(filePath)}`;
     return { optimizedUrl: url, thumbnailUrl: url, originalUrl: url };
   }

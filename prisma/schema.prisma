@@ -12,7 +12,7 @@ model Product {
   name              String
   subtitle          String?
   handle            String           @unique
-  description       String?
+  description       String?          @db.Text
   productType       String?
   gender            String?
   ageGroup          String?

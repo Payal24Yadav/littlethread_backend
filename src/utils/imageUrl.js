@@ -1,5 +1,26 @@
+export const getImageUrl = (value) => {
+  if (!value) return '/placeholder-product.png';
+  if (typeof value !== 'string') return value;
+  if (value.startsWith('http://localhost:5000/uploads/products/')) {
+    const filename = value.replace('http://localhost:5000/uploads/products/', '');
+    return `https://littlethread-backend.onrender.com/uploads/products/${filename}`;
+  }
+  if (value.startsWith('http://localhost:5000/uploads/')) {
+    const relativePart = value.replace('http://localhost:5000/uploads/', '');
+    return `https://littlethread-backend.onrender.com/uploads/${relativePart}`;
+  }
+  if (value.startsWith('/uploads/')) {
+    return `https://littlethread-backend.onrender.com${value}`;
+  }
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return value;
+  }
+  // Otherwise treat as filename in products
+  return `https://littlethread-backend.onrender.com/uploads/products/${value}`;
+};
+
 export const appendImageVersion = (value) => {
-  return value;
+  return getImageUrl(value);
 };
 
 export const appendImageVersionToArray = (values) => {
