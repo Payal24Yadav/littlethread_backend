@@ -125,9 +125,9 @@ export const getShipmentByOrder = async (req, res) => {
     const shipment = await shippingService.getShipmentByOrder(req.params.orderId);
 
     if (!shipment) {
-      return res.status(404).json({
-        success: false,
-        message: 'No shipment found for this order',
+      return res.status(200).json({
+        success: true,
+        shipment: null,
       });
     }
 
