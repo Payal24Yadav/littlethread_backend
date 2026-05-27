@@ -1071,7 +1071,7 @@ export const getReturnRequest = async (req, res) => {
     });
 
     if (!returnRequest) {
-      return res.status(404).json({ message: 'No return request found for this order' });
+      return res.status(200).json(null);
     }
 
     res.json(returnRequest);
