@@ -291,7 +291,7 @@ export const generateInvoice = async (orderOrId) => {
       doc.restore();
 
       // --- PRODUCTS TABLE SECTION ---
-      let tableTop = detailsY + cardHeight + 22;
+      let tableTop = detailsY + cardHeight + 38;
       const colWidths = {
         no: 34,
         desc: 260,
@@ -388,7 +388,7 @@ export const generateInvoice = async (orderOrId) => {
          .stroke();
 
       // --- LOGISTICS & TOTALS SECTION ---
-      const totalSectionY = rowY + 16;
+      const totalSectionY = rowY + 35;
       const summaryWidth = 240;
       const shipmentCardHeight = 102; // Increased height to prevent overflow
 
