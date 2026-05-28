@@ -265,6 +265,17 @@ const normalizeAddressForSave = (shippingAddress = {}, customerName = '', custom
 
 const normalizeVariantTitle = (value = '') => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 
+const runPostResponseTask = (taskName, task) => {
+  Promise.resolve()
+    .then(task)
+    .catch((error) => {
+      logger.error(taskName, {
+        error: error?.message || String(error),
+        stack: error?.stack,
+      });
+    });
+};
+
 const validateCheckoutItems = async (items, requestedAmount, couponCode = null, email = null) => {
   const errors = [];
   const canonicalItems = [];
@@ -561,36 +572,24 @@ export const createRazorpayOrder = async (req, res) => {
         status: order.status,
       });
 
-      try {
-        await notifyOrderCreated(order);
-      } catch (error) {
-        logger.error('payments.create.notify_order_created.error', {
-          order_id: order.id,
-          error: error?.message || String(error),
-        });
-      }
-
-      await logActivity(order.id, 'ORDER_PLACED', 'Order placed with Cash on Delivery. Payment is pending collection.');
-
-      // Increment coupon usage if used
-      if (req.body.couponCode) {
-        try {
-          await prisma.coupon.update({
-            where: { code: req.body.couponCode },
-            data: { usedCount: { increment: 1 } }
-          });
-        } catch (couponErr) {
-          logger.error('payments.create.coupon_increment.error', {
-            coupon_code: req.body.couponCode,
-            error: couponErr?.message || String(couponErr)
-          });
-        }
-      }
-
       const emailToSend = shippingAddress?.email || customerEmail || null;
-      if (emailToSend) {
-        await sendMail(emailToSend, 'Order Confirmation - Little Threads', TEMPLATES.ORDER_CONFIRMATION());
-      }
+      const couponCodeToIncrement = req.body.couponCode;
+
+      runPostResponseTask('payments.create.cod.post_response.error', async () => {
+        await Promise.allSettled([
+          notifyOrderCreated(order),
+          logActivity(order.id, 'ORDER_PLACED', 'Order placed with Cash on Delivery. Payment is pending collection.'),
+          couponCodeToIncrement
+            ? prisma.coupon.update({
+                where: { code: couponCodeToIncrement },
+                data: { usedCount: { increment: 1 } }
+              })
+            : Promise.resolve(),
+          emailToSend
+            ? sendMail(emailToSend, 'Order Confirmation - Little Threads', TEMPLATES.ORDER_CONFIRMATION())
+            : Promise.resolve(),
+        ]);
+      });
 
       return res.json({
         success: true,
