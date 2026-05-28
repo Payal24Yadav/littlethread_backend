@@ -170,16 +170,6 @@ export const validateImportRow = (normalized, rowNumber) => {
   if (!normalized.variant.sku && !normalized.variant.title) {
     errors.push('variantSku or variantTitle is required');
   }
-  if (normalized.gender && !['MALE', 'FEMALE', 'UNISEX'].includes(standardizeEnumValue(normalized.gender, ['MALE', 'FEMALE', 'UNISEX']))) {
-    errors.push('gender must be one of MALE, FEMALE, UNISEX');
-  }
-  if (normalized.ageGroup && !['NEWBORN', 'INFANT', 'TODDLER', 'KIDS', 'TEEN', 'ADULT'].includes(standardizeEnumValue(normalized.ageGroup, ['NEWBORN', 'INFANT', 'TODDLER', 'KIDS', 'TEEN', 'ADULT']))) {
-    errors.push('ageGroup must be one of NEWBORN, INFANT, TODDLER, KIDS, TEEN, ADULT');
-  }
-  if (normalized.season && !['SUMMER', 'WINTER', 'SPRING', 'FALL', 'FESTIVE', 'ALL_SEASON'].includes(standardizeEnumValue(normalized.season, ['SUMMER', 'WINTER', 'SPRING', 'FALL', 'FESTIVE', 'ALL_SEASON']))) {
-    errors.push('season must be one of SUMMER, WINTER, SPRING, FALL, FESTIVE, ALL_SEASON');
-  }
-
   if (errors.length > 0) {
     return { rowNumber, valid: false, errors };
   }
