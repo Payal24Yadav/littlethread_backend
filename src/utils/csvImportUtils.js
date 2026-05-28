@@ -7,11 +7,23 @@ export const generateSlug = (value = '') =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
-export const parseCsvArray = (value) =>
-  String(value || '')
+export const parseCsvArray = (value) => {
+  const trimmed = trimValue(value);
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith('[')) {
+    const parsed = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) {
+      throw new Error('must be a JSON array');
+    }
+    return parsed.map((item) => trimValue(item)).filter(Boolean);
+  }
+
+  return trimmed
     .split(/[,;|]/)
     .map((item) => trimValue(item))
     .filter(Boolean);
+};
 
 export const parseOptionalFloat = (value) => {
   if (value === undefined || value === null || trimValue(value) === '') return null;
@@ -157,9 +169,6 @@ export const validateImportRow = (normalized, rowNumber) => {
   }
   if (!normalized.variant.sku && !normalized.variant.title) {
     errors.push('variantSku or variantTitle is required');
-  }
-  if (normalized.isDiscountable && normalized.discountPrice === null) {
-    errors.push('discountPrice is required when isDiscountable is true');
   }
   if (normalized.gender && !['MALE', 'FEMALE', 'UNISEX'].includes(standardizeEnumValue(normalized.gender, ['MALE', 'FEMALE', 'UNISEX']))) {
     errors.push('gender must be one of MALE, FEMALE, UNISEX');

@@ -335,16 +335,53 @@ const buildProductSaveError = (error, action = 'save') => {
   return response;
 };
 
+const getCsvValue = (row, keys) => {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null && trimValue(row[key]) !== '') {
+      return row[key];
+    }
+  }
+  return '';
+};
+
+const parseImportArrayField = (row, keys, rowNumber, fieldName, rowErrors, { nullable = false } = {}) => {
+  const rawValue = getCsvValue(row, keys);
+  if (trimValue(rawValue) === '') return nullable ? null : [];
+
+  try {
+    const parsed = parseCsvArray(rawValue);
+    return nullable && parsed.length === 0 ? null : parsed;
+  } catch (error) {
+    rowErrors.push({
+      row: rowNumber,
+      field: fieldName,
+      rowData: row,
+      error: `${fieldName} must be a valid JSON array or a comma/semicolon/pipe separated list. If using JSON in CSV, escape quotes like "[""img1"",""img2""]". ${error.message}`,
+    });
+    return nullable ? null : [];
+  }
+};
+
 export const importProducts = async (req, res) => {
   try {
+    console.log('products.import.file', req.file ? {
+      fieldname: req.file.fieldname,
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+    } : null);
+    console.log('products.import.body', req.body);
+
     if (!req.file) {
-      return res.status(400).json({ message: 'CSV file is required' });
+      return res.status(400).json({ success: false, message: 'CSV file is required' });
     }
 
     const rows = [];
     await new Promise((resolve, reject) => {
       Readable.from([req.file.buffer])
-        .pipe(csv())
+        .pipe(csv({
+          mapHeaders: ({ header }) => trimValue(header).replace(/^\uFEFF/, ''),
+        }))
         .on('data', (row) => rows.push(row))
         .on('end', resolve)
         .on('error', reject);
@@ -367,38 +404,59 @@ export const importProducts = async (req, res) => {
       normalizedRows.push(normalized);
     });
 
-    const parsedRows = normalizedRows.map((rawRow) => {
+    const parsedRows = [];
+
+    normalizedRows.forEach((rawRow) => {
+      const unexpectedColumns = Object.keys(rawRow).filter((key) => /^_\d+$/.test(key));
+      if (unexpectedColumns.length > 0) {
+        rowErrors.push({
+          row: rawRow.rowNumber,
+          rowData: rawRow,
+          error: 'CSV row has extra unnamed columns. This usually means a value contains unescaped commas, often JSON arrays. Wrap JSON cells in quotes and double the inner quotes.',
+        });
+      }
+
+      const productName = trimValue(getCsvValue(rawRow, ['productName', 'name']));
+      const rawHandle = trimValue(getCsvValue(rawRow, ['productHandle', 'handle']));
+      const productHandle = rawHandle ? slugifyProductName(rawHandle) : generateSlug(productName);
+      const variantStockValue = getCsvValue(rawRow, ['variantStock', 'stock']);
+      const variantStock = Number.isNaN(parseInt(trimValue(variantStockValue || '0'), 10))
+        ? null
+        : parseInt(trimValue(variantStockValue || '0'), 10);
+      const variantTitle = trimValue(getCsvValue(rawRow, ['variantTitle'])) || 'Default Variant';
+
       const normalized = {
+        id: trimValue(rawRow.id) || null,
         rowNumber: rawRow.rowNumber,
-        productName: trimValue(rawRow.productName || rawRow.name),
-        productHandle: trimValue(rawRow.productHandle || rawRow.handle) || generateSlug(trimValue(rawRow.productName || rawRow.name)),
-        productDescription: trimValue(rawRow.productDescription || rawRow.description) || null,
+        productName,
+        productHandle,
+        productDescription: trimValue(getCsvValue(rawRow, ['productDescription', 'description'])) || null,
         subtitle: trimValue(rawRow.subtitle) || null,
         productType: trimValue(rawRow.productType) || null,
         gender: trimValue(rawRow.gender) || null,
         ageGroup: trimValue(rawRow.ageGroup) || null,
         season: trimValue(rawRow.season) || null,
-        brandName: trimValue(rawRow.brandName) || null,
-        categories: parseCsvArray(rawRow.categories),
-        collections: parseCsvArray(rawRow.collections),
-        tags: parseTagArray(rawRow.tags),
+        brandName: trimValue(getCsvValue(rawRow, ['brandName', 'brand'])) || null,
+        categories: parseImportArrayField(rawRow, ['categories', 'category'], rawRow.rowNumber, 'categories', rowErrors),
+        collections: parseImportArrayField(rawRow, ['collections', 'collection'], rawRow.rowNumber, 'collections', rowErrors),
+        tags: parseImportArrayField(rawRow, ['tags'], rawRow.rowNumber, 'tags', rowErrors, { nullable: true }),
         price: parseOptionalFloat(rawRow.price),
         compareAtPrice: parseOptionalFloat(rawRow.compareAtPrice),
         costPrice: parseOptionalFloat(rawRow.costPrice),
         isDiscountable: parseBoolean(rawRow.isDiscountable, false),
         discountPrice: parseOptionalFloat(rawRow.discountPrice),
-        productImages: parseCsvArray(rawRow.productImages),
+        productImages: parseImportArrayField(rawRow, ['productImages', 'images'], rawRow.rowNumber, 'images', rowErrors),
         variant: {
           sku: trimValue(rawRow.variantSku) || null,
-          title: trimValue(rawRow.variantTitle) || null,
+          title: variantTitle,
           color: trimValue(rawRow.variantColor) || null,
           size: trimValue(rawRow.variantSize) || null,
-          stock: Number.isNaN(parseInt(trimValue(rawRow.variantStock || '0'), 10)) ? null : parseInt(trimValue(rawRow.variantStock || '0'), 10),
+          stock: variantStock,
           price: parseOptionalFloat(trimValue(rawRow.variantPrice) || rawRow.price),
           compareAtPrice: parseOptionalFloat(trimValue(rawRow.variantCompareAtPrice) || rawRow.compareAtPrice),
           costPrice: parseOptionalFloat(trimValue(rawRow.variantCostPrice) || rawRow.costPrice),
           barcode: trimValue(rawRow.variantBarcode) || null,
-          images: parseCsvArray(rawRow.variantImageUrls),
+          images: parseImportArrayField(rawRow, ['variantImageUrls', 'variantImages'], rawRow.rowNumber, 'variantImageUrls', rowErrors),
           weight: parseOptionalFloat(rawRow.variantWeight),
           length: parseOptionalFloat(rawRow.variantLength),
           breadth: parseOptionalFloat(rawRow.variantBreadth),
@@ -416,14 +474,21 @@ export const importProducts = async (req, res) => {
 
       const validationResult = validateImportRow(normalized, rawRow.rowNumber);
       if (!validationResult.valid) {
-        rowErrors.push({ row: rawRow.rowNumber, errors: validationResult.errors });
+        rowErrors.push({ row: rawRow.rowNumber, rowData: rawRow, errors: validationResult.errors });
       }
 
-      return normalized;
+      parsedRows.push(normalized);
     });
 
     if (rowErrors.length > 0) {
-      return res.status(400).json({ message: 'CSV validation failed', errors: rowErrors });
+      logger.warn('products.import.validation_failed', { errors: rowErrors });
+      return res.status(400).json({
+        success: false,
+        message: 'CSV validation failed',
+        row: rowErrors[0]?.rowData,
+        error: rowErrors[0]?.error || rowErrors[0]?.errors?.join(', '),
+        errors: rowErrors,
+      });
     }
 
     const productGroups = buildProductGroups(parsedRows);
@@ -438,9 +503,21 @@ export const importProducts = async (req, res) => {
       }
 
       const { productHandle, productName, variants, productData } = group;
-      const existingProduct = await prisma.product.findUnique({ where: { handle: productHandle } });
+      const existingProduct = await prisma.product.findFirst({
+        where: {
+          OR: [
+            { handle: productHandle },
+            ...(productData.id ? [{ id: productData.id }] : []),
+          ],
+        },
+        select: { id: true, handle: true },
+      });
       if (existingProduct) {
-        failedRows.push({ rows: group.rowNumbers, errors: [`Product handle ${productHandle} already exists`] });
+        failedRows.push({
+          rows: group.rowNumbers,
+          error: `Skipped duplicate product ${existingProduct.handle === productHandle ? `handle ${productHandle}` : `id ${productData.id}`}`,
+          row: productData,
+        });
         continue;
       }
 
@@ -456,6 +533,7 @@ export const importProducts = async (req, res) => {
         await prisma.$transaction(async (tx) => {
           const createdProduct = await tx.product.create({
             data: {
+              id: productData.id || undefined,
               name: productName,
               handle: productHandle,
               subtitle: productData.subtitle,
@@ -477,7 +555,7 @@ export const importProducts = async (req, res) => {
               ...(brand ? { brand } : {}),
               categories: categoryConnectOrCreate.length > 0 ? { connectOrCreate: categoryConnectOrCreate } : undefined,
               collections: collectionConnectOrCreate.length > 0 ? { connectOrCreate: collectionConnectOrCreate } : undefined,
-              tags: productData.tags ? { set: productData.tags } : undefined,
+              tags: productData.tags || null,
               variants: {
                 create: variants.map((variant) => ({
                   sku: variant.sku,
@@ -507,7 +585,9 @@ export const importProducts = async (req, res) => {
 
         successCount += 1;
       } catch (error) {
-        failedRows.push({ rows: group.rowNumbers, error: error.message });
+        console.log('products.import.row_error', error);
+        logger.error('products.import.row_error', { rows: group.rowNumbers, code: error?.code, message: error?.message, stack: error?.stack });
+        failedRows.push({ rows: group.rowNumbers, row: productData, error: error.message });
       }
     }
 
@@ -517,7 +597,9 @@ export const importProducts = async (req, res) => {
       failedRows,
     });
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to import products', error: error.message });
+    console.log('products.import.error', error);
+    logger.error('products.import.error', { code: error?.code, message: error?.message, stack: error?.stack });
+    return res.status(500).json({ success: false, message: 'Failed to import products', error: error.message });
   }
 };
 

@@ -15,12 +15,27 @@ import {
 } from '../controllers/productController.js';
 
 const router = express.Router();
+const importUpload = (req, res, next) => {
+  upload.single('file')(req, res, (error) => {
+    if (!error) return next();
+
+    const message = error.code === 'LIMIT_FILE_SIZE'
+      ? 'CSV file is too large. Maximum upload size is 10 MB.'
+      : error.message || 'CSV upload failed';
+
+    return res.status(400).json({
+      success: false,
+      message,
+      error: error.message,
+    });
+  });
+};
 
 router.get('/', getAllProducts);
 router.get('/best-sellers', getBestSellers);
 router.get('/new-arrivals', getNewArrivals);
 router.get('/handle/:handle', getProductByHandle);
-router.post('/import', requireAdmin, upload.single('file'), importProducts);
+router.post('/import', requireAdmin, importUpload, importProducts);
 router.get('/:id', getProductById);
 router.post('/', requireAdmin, createProduct);
 router.put('/:id', requireAdmin, updateProduct);
