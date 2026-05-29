@@ -3,8 +3,23 @@ import prisma from '../utils/prisma.js';
 export const submitMessage = async (req, res) => {
   try {
     const { name, email, subject, message } = req.body;
+    const payload = {
+      name: String(name || '').trim(),
+      email: String(email || '').trim().toLowerCase(),
+      subject: String(subject || 'General Inquiry').trim() || 'General Inquiry',
+      message: String(message || '').trim(),
+    };
+
+    if (!payload.name || !payload.email || !payload.message) {
+      return res.status(400).json({ message: 'Name, email, and message are required.' });
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) {
+      return res.status(400).json({ message: 'Enter a valid email address.' });
+    }
+
     const newMessage = await prisma.contactMessage.create({
-      data: { name, email, subject, message }
+      data: payload
     });
     res.json(newMessage);
   } catch (error) {
