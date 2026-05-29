@@ -28,14 +28,39 @@ export const appendImageVersionToArray = (values) => {
   return values.map(appendImageVersion);
 };
 
+const isUsableImage = (value) => {
+  if (!value || typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized !== '' && !normalized.includes('placeholder-product');
+};
+
+const isStaleHostedUpload = (value) => (
+  typeof value === 'string' &&
+  value.includes('littlethread-backend.onrender.com/uploads/')
+);
+
+const preferStoredImagesOverStaleUpload = (thumbnailUrl, hoverThumbnailUrl, images) => {
+  const usableImages = Array.isArray(images) ? images.filter(isUsableImage) : [];
+  const shouldUseImages = usableImages.length > 0 && isStaleHostedUpload(thumbnailUrl);
+
+  return {
+    thumbnailUrl: shouldUseImages ? usableImages[0] : thumbnailUrl,
+    hoverThumbnailUrl: shouldUseImages ? (usableImages[1] || usableImages[0]) : hoverThumbnailUrl,
+  };
+};
+
 export const appendProductImageVersions = (product) => {
   if (!product) return product;
+  const images = appendImageVersionToArray(product.images);
+  const thumbnailUrl = appendImageVersion(product.thumbnailUrl);
+  const hoverThumbnailUrl = appendImageVersion(product.hoverThumbnailUrl);
+  const preferred = preferStoredImagesOverStaleUpload(thumbnailUrl, hoverThumbnailUrl, images);
 
   return {
     ...product,
-    thumbnailUrl: appendImageVersion(product.thumbnailUrl),
-    hoverThumbnailUrl: appendImageVersion(product.hoverThumbnailUrl),
-    images: appendImageVersionToArray(product.images),
+    thumbnailUrl: preferred.thumbnailUrl,
+    hoverThumbnailUrl: preferred.hoverThumbnailUrl,
+    images,
     variants: Array.isArray(product.variants)
       ? product.variants.map((variant) => ({
           ...variant,
@@ -59,11 +84,22 @@ export const appendCollectionImageVersion = (collection) => {
     imageUrl: appendImageVersion(collection.imageUrl),
     img: appendImageVersion(collection.img),
     products: Array.isArray(collection.products)
-      ? collection.products.map((product) => ({
-          ...product,
-          thumbnailUrl: appendImageVersion(product.thumbnailUrl),
-          images: appendImageVersionToArray(product.images),
-        }))
+      ? collection.products.map((product) => {
+          const images = appendImageVersionToArray(product.images);
+          const thumbnailUrl = appendImageVersion(product.thumbnailUrl);
+          const preferred = preferStoredImagesOverStaleUpload(
+            thumbnailUrl,
+            appendImageVersion(product.hoverThumbnailUrl),
+            images
+          );
+
+          return {
+            ...product,
+            thumbnailUrl: preferred.thumbnailUrl,
+            hoverThumbnailUrl: preferred.hoverThumbnailUrl,
+            images,
+          };
+        })
       : collection.products,
   };
 };
