@@ -790,15 +790,19 @@ export const verifyPayment = async (req, res) => {
       return res.json({ message: 'Payment already verified', order: existingOrder });
     }
 
-    const rpOrder = await razorpay.orders.fetch(razorpay_order_id);
+    const existingCheckoutOrder = await prisma.order.findUnique({
+      where: { razorpayOrderId: razorpay_order_id },
+      select: { totalAmount: true }
+    });
 
-    const subtotal = orderData.items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-    const paidAmount = rpOrder.amount / 100;
+    const checkoutItems = Array.isArray(orderData?.items) ? orderData.items : [];
+    const subtotal = checkoutItems.reduce((acc, item) => acc + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
+    const paidAmount = Number(existingCheckoutOrder?.totalAmount || orderData?.amount || subtotal || 0);
 
     logger.info('💰 PAYMENT_DETAILS', {
       subtotal,
       paidAmount,
-      razorpay_amount: rpOrder.amount
+      razorpay_amount: paidAmount * 100
     });
 
     const requestedCustomerId = req.user?.id || orderData?.customerId || null;
@@ -913,76 +917,80 @@ export const verifyPayment = async (req, res) => {
       }
     }
 
-    // Track sales
-    await Promise.all(order.items.map(item =>
-      prisma.sale.create({
-        data: {
-          productId: item.productId,
-          quantity: item.quantity,
-          price: item.price * item.quantity,
-          source: 'Website',
-          orderId: order.id,
-          customerName: order.shippingAddress?.fullName || null,
-          customerEmail: order.shippingAddress?.email || null,
-          customerPhone: order.shippingAddress?.phone || null,
-          paymentMode: 'Razorpay',
-          paymentId: razorpay_payment_id,
-          variantTitle: item.variantTitle || null
-        }
-      })
-    ));
-
-    // Send emails & notifications
-    try {
-      await notifyPaymentSuccess(order);
-      await logActivity(order.id, 'PAYMENT_RECEIVED', `Payment of ₹${paidAmount} verified.`);
-      
-      const emailToSend = order.shippingAddress?.email || orderData.customerEmail || null;
-      if (emailToSend) {
-        await sendMail(emailToSend, 'Order Confirmation - Little Threads', TEMPLATES.ORDER_CONFIRMATION());
-        // Generate and send invoice
-        const invoiceBuffer = await generateInvoice(order);
-        if (invoiceBuffer) {
-          const subject = `Invoice for Order #${order.invoiceNumber || order.id.slice(-6).toUpperCase()}`;
-          const text = TEMPLATES.INVOICE(order.invoiceNumber || order.id);
-          await sendInvoiceEmail(emailToSend, subject, text, invoiceBuffer);
-        }
-      }
-    } catch (notifyErr) {
-      logger.error('payments.verify.post_actions.error', {
-        order_id: order.id,
-        error: notifyErr.message
-      });
-    }
-
-    // Auto-create shipment + AWB + pickup after successful payment (recommended for production)
-    const autoShipExplicit = String(
-      process.env.SHIPROCKET_AUTO_CREATE_SHIPMENT ||
-      process.env.SHIPROCKET_ENABLE_AUTO_SHIPPING ||
-      ''
-    ).trim().toLowerCase();
-    const shouldAutoShip =
-      autoShipExplicit === 'true' ||
-      (autoShipExplicit !== 'false' && process.env.NODE_ENV === 'production');
-
-    if (shouldAutoShip) {
-      try {
-        const shippingResult = await shippingService.createShipment({ orderId: order.id });
-        logger.info('payments.verify.shipping.auto_ship.success', {
-          order_id: order.id,
-          created: Boolean(shippingResult?.created),
-          awb: shippingResult?.shipment?.awb || null,
-        });
-      } catch (shipErr) {
-        logger.error('payments.verify.shipping.auto_ship.failed', {
-          order_id: order.id,
-          message: shipErr?.message,
-          stack: shipErr?.stack,
-        });
-      }
-    }
-
     res.json({ message: "Payment verified and order created successfully", order });
+
+    runPostResponseTask('payments.verify.post_response_tasks.error', async () => {
+      // Track sales
+      await Promise.all(order.items.map(item =>
+        prisma.sale.create({
+          data: {
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price * item.quantity,
+            source: 'Website',
+            orderId: order.id,
+            customerName: order.shippingAddress?.fullName || null,
+            customerEmail: order.shippingAddress?.email || null,
+            customerPhone: order.shippingAddress?.phone || null,
+            paymentMode: 'Razorpay',
+            paymentId: razorpay_payment_id,
+            variantTitle: item.variantTitle || null
+          }
+        })
+      ));
+
+      // Send emails & notifications
+      try {
+        await notifyPaymentSuccess(order);
+        await logActivity(order.id, 'PAYMENT_RECEIVED', `Payment of ₹${paidAmount} verified.`);
+        
+        const emailToSend = order.shippingAddress?.email || orderData.customerEmail || null;
+        if (emailToSend) {
+          await sendMail(emailToSend, 'Order Confirmation - Little Threads', TEMPLATES.ORDER_CONFIRMATION());
+          // Generate and send invoice
+          const invoiceBuffer = await generateInvoice(order);
+          if (invoiceBuffer) {
+            const subject = `Invoice for Order #${order.invoiceNumber || order.id.slice(-6).toUpperCase()}`;
+            const text = TEMPLATES.INVOICE(order.invoiceNumber || order.id);
+            await sendInvoiceEmail(emailToSend, subject, text, invoiceBuffer);
+          }
+        }
+      } catch (notifyErr) {
+        logger.error('payments.verify.post_actions.error', {
+          order_id: order.id,
+          error: notifyErr.message
+        });
+      }
+
+      // Auto-create shipment + AWB + pickup after successful payment (recommended for production)
+      const autoShipExplicit = String(
+        process.env.SHIPROCKET_AUTO_CREATE_SHIPMENT ||
+        process.env.SHIPROCKET_ENABLE_AUTO_SHIPPING ||
+        ''
+      ).trim().toLowerCase();
+      const shouldAutoShip =
+        autoShipExplicit === 'true' ||
+        (autoShipExplicit !== 'false' && process.env.NODE_ENV === 'production');
+
+      if (shouldAutoShip) {
+        try {
+          const shippingResult = await shippingService.createShipment({ orderId: order.id });
+          logger.info('payments.verify.shipping.auto_ship.success', {
+            order_id: order.id,
+            created: Boolean(shippingResult?.created),
+            awb: shippingResult?.shipment?.awb || null,
+          });
+        } catch (shipErr) {
+          logger.error('payments.verify.shipping.auto_ship.failed', {
+            order_id: order.id,
+            message: shipErr?.message,
+            stack: shipErr?.stack,
+          });
+        }
+      }
+    });
+
+    return;
 
   } catch (error) {
     // 🔥 NEW: Detailed error log
