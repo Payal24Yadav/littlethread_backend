@@ -1,9 +1,12 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const prisma = new PrismaClient();
-const RAZORPAY_KEY_SECRET = '8um1nLQQl9VhKphm57B3AmaE';
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
 
 async function testVerify() {
   try {
