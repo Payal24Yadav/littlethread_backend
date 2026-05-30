@@ -1,22 +1,33 @@
 export const getImageUrl = (value) => {
+  const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000';
   if (!value) return '/placeholder-product.png';
   if (typeof value !== 'string') return value;
+  
+  if (value.startsWith(`${API_BASE_URL}/uploads/products/`)) {
+    const filename = value.replace(`${API_BASE_URL}/uploads/products/`, '');
+    return `${API_BASE_URL}/uploads/products/${filename}`;
+  }
+  if (value.startsWith(`${API_BASE_URL}/uploads/`)) {
+    const relativePart = value.replace(`${API_BASE_URL}/uploads/`, '');
+    return `${API_BASE_URL}/uploads/${relativePart}`;
+  }
   if (value.startsWith('http://localhost:5000/uploads/products/')) {
     const filename = value.replace('http://localhost:5000/uploads/products/', '');
-    return `https://littlethread-backend.onrender.com/uploads/products/${filename}`;
+    return `${API_BASE_URL}/uploads/products/${filename}`;
   }
   if (value.startsWith('http://localhost:5000/uploads/')) {
     const relativePart = value.replace('http://localhost:5000/uploads/', '');
-    return `https://littlethread-backend.onrender.com/uploads/${relativePart}`;
+    return `${API_BASE_URL}/uploads/${relativePart}`;
   }
+  
   if (value.startsWith('/uploads/')) {
-    return `https://littlethread-backend.onrender.com${value}`;
+    return `${API_BASE_URL}${value}`;
   }
   if (value.startsWith('http://') || value.startsWith('https://')) {
     return value;
   }
   // Otherwise treat as filename in products
-  return `https://littlethread-backend.onrender.com/uploads/products/${value}`;
+  return `${API_BASE_URL}/uploads/products/${value}`;
 };
 
 export const appendImageVersion = (value) => {

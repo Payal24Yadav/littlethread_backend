@@ -66,7 +66,7 @@ for (const envVar of requiredEnvVars) {
 }
 
 const app = express();
-const PORT = Number(process.env.PORT || 3000);
+const PORT = process.env.PORT || 3000;
 
 const trustProxy = process.env.TRUST_PROXY ?? (process.env.NODE_ENV === 'production' ? '1' : 'loopback');
 app.set('trust proxy', trustProxy);
