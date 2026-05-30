@@ -56,15 +56,24 @@ import { getCustomerOrders, getOrderById } from './controllers/orderController.j
 import { getSettings } from './controllers/settingsController.js';
 import { logger } from './utils/logger.js';
 
+// Environment variable validation
+const requiredEnvVars = ['DATABASE_URL', 'JWT_SECRET', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET'];
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    console.error(`ERROR: Missing required environment variable: ${envVar}`);
+    process.exit(1);
+  }
+}
+
 const app = express();
-const PORT = Number(process.env.PORT || 8000);
+const PORT = Number(process.env.PORT || 3000);
 
 const trustProxy = process.env.TRUST_PROXY ?? (process.env.NODE_ENV === 'production' ? '1' : 'loopback');
 app.set('trust proxy', trustProxy);
 
 app.use(compression());
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Robust CORS configuration for production with credentials
 app.use(helmet({
@@ -140,7 +149,10 @@ const authLimiter = rateLimit({
 });
 
 app.use(cors({
-  origin: true, // Reflects the request origin, or you can specify 'https://admin.littlethreadsfashion.com'
+  origin: [
+    'https://www.littlethreadsfashion.com',
+    'https://admin.littlethreadsfashion.com'
+  ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-API-Key'],
   credentials: true,
@@ -183,11 +195,15 @@ app.use('/api/public/shipping', publicShippingRoutes);
 
 
 
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'healthy', timestamp: new Date() });
+});
+
 app.get('/', (req, res) => {
   res.send('Ecommerce API is running...');
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
@@ -196,4 +212,21 @@ startShiprocketWebhookRetryWorker({
   intervalMs: Number(process.env.SHIPROCKET_RETRY_WORKER_INTERVAL_MS || 60_000),
   batchSize: Number(process.env.SHIPROCKET_RETRY_WORKER_BATCH_SIZE || 10),
   maxAttempts: Number(process.env.SHIPROCKET_RETRY_WORKER_MAX_ATTEMPTS || 6),
+});
+
+// Graceful shutdown handling for zero-downtime deployments
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
 });
